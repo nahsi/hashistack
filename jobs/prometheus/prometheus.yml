@@ -1,0 +1,33 @@
+global:
+  scrape_interval:     "15s"
+  evaluation_interval: "15s"
+
+scrape_configs:
+  - job_name: "prometheus"
+    static_configs:
+      - targets:
+        - "localhost:9090"
+        labels:
+          instance: {{ env "attr.unique.hostname" }}
+
+  - job_name: "grafana"
+    consul_sd_configs:
+      - server: "172.17.0.1:8500"
+        services:
+        - "grafana"
+    relabel_configs:
+      - source_labels: ["__meta_consul_node"]
+        target_label: "instance"
+
+  - job_name: "envoy"
+    consul_sd_configs:
+      - server: "172.17.0.1:8500"
+        services:
+          - "envoy"
+    relabel_configs:
+      - source_labels: ["__meta_consul_node"]
+        target_label: "instance"
+    metric_relabel_configs:
+      - source_labels: ["__name__"]
+        regex: "(envoy_cluster_upstream_rq_connect_fail|envoy_http_downstream_rq_no_route|envoy_cluster_upstream_rq_completed|envoy_http_downstream_rq_completed|envoy_cluster_upstream_rq_time_bucket|envoy_http_downstream_rq_time_bucket|envoy_cluster_upstream_rq_xx|envoy_http_downstream_rq_xx|envoy_listener_http_downstream_rq_xx|envoy_cluster_upstream_cx_connect_fail|envoy_tcp_downstream_cx_no_route|envoy_cluster_upstream_cx_rx_bytes_total|envoy_cluster_upstream_cx_tx_bytes_total|envoy_tcp_downstream_cx_tx_bytes_total|envoy_tcp_downstream_cx_rx_bytes_total)"
+        action: keep

@@ -1,0 +1,92 @@
+hashistack:
+  consul:
+    version: "1.10.3"
+    config:
+      bind_addr: "{{ ansible_default_ipv4.address }}"
+      client_addr: "0.0.0.0"
+      ui_config:
+        metrics_provider: "prometheus"
+        metrics_proxy:
+          base_url: "http://localhost:9090"
+        dashboard_url_templates:
+          service: !unsafe "http://localhost:3000/d/{{Service.Meta.dashboard}}?var-service={{Service.Name}}"
+      config_entries:
+        bootstrap:
+          - kind: "proxy-defaults"
+            name: "global"
+            config:
+              protocol: "http"
+              envoy_prometheus_bind_addr: "0.0.0.0:9102"
+
+    unitfile: |
+      [Unit]
+      Description="HashiCorp Consul - service mesh solution"
+      Documentation=https://www.consul.io/docs
+      Requires=network-online.target
+      After=network-online.target
+
+      [Service]
+      ExecStart=/usr/bin/consul agent -dev -config-file=/opt/consul/config.json
+      ExecReload=/bin/kill --signal HUP $MAINPID
+      KillMode=process
+      KillSignal=SIGTERM
+      LimitNOFILE=65536
+      Restart=on-failure
+
+      [Install]
+      WantedBy=multi-user.target
+
+  vault:
+    version: "1.8.4"
+    unitfile: |
+      [Unit]
+      Description="HashiCorp Vault - tool for managing secrets"
+      Documentation=https://www.vaultproject.io/docs/
+      Requires=network-online.target
+      After=network-online.target
+
+      [Service]
+      ExecStart=/usr/bin/vault server -dev -dev-listen-address 0.0.0.0:8200
+      ExecReload=/bin/kill --signal HUP $MAINPID
+      KillMode=process
+      KillSignal=SIGINT
+      LimitNOFILE=65536
+      LimitMEMLOCK=infinity
+      Restart=on-failure
+      RestartSec=5
+      TimeoutStopSec=30
+
+      [Install]
+      WantedBy=multi-user.target
+
+  nomad:
+    version: "1.1.6"
+    config:
+      bind_addr: "0.0.0.0"
+      server:
+        raft_protocol: 3
+      client:
+        cni_path: "/usr/lib/cni"
+
+    unitfile: |
+      [Unit]
+      Description="HashiCorp Nomad - workload orchestration system"
+      Documentation=https://www.nomadproject.io/docs/
+      Wants=network-online.target
+      After=network-online.target
+
+      [Service]
+      ExecReload=/bin/kill -HUP $MAINPID
+      ExecStart=/usr/bin/nomad agent -dev -dev-connect -config /opt/nomad/config.json
+      KillMode=process
+      KillSignal=SIGINT
+      LimitNOFILE=65536
+      LimitNPROC=infinity
+      Restart=on-failure
+      RestartSec=2
+
+      TasksMax=infinity
+      OOMScoreAdjust=-1000
+
+      [Install]
+      WantedBy=multi-user.target

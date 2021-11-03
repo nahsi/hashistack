@@ -1,0 +1,150 @@
+- hosts: all
+  become: true
+  vars_files: /vagrant/playbooks/variables.yml
+  tasks:
+    - name: Install packages
+      apt:
+        name:
+          - "unzip"
+          - "python3-pip"
+          - "jq"
+          - "curl"
+          - "containernetworking-plugins"
+        state: latest
+        install_recommends: false
+
+    - name: Install pip packages
+      pip:
+        name:
+          - "python-nomad"
+
+    - name: Install prerequisites for Docker repository
+      apt:
+        name:
+          - "apt-transport-https"
+          - "ca-certificates"
+          - "curl"
+          - "gnupg2"
+          - "software-properties-common"
+        install_recommends: false
+
+    - name: Add Docker GPG key
+      apt_key: url=https://download.docker.com/linux/ubuntu/gpg
+
+    - name: Add Docker APT repository
+      apt_repository:
+        repo: >
+          deb [arch=amd64] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable
+
+    - name: Install Docker CE
+      apt:
+        name:
+          - "docker-ce"
+          - "docker-ce-cli"
+          - "containerd.io"
+        update_cache: yes
+        install_recommends: false
+
+    - name: Start and enable docker
+      systemd:
+        name: "docker"
+        state: started
+        enabled: true
+
+    - name: Add "vagrant" user to docker group
+      user:
+        name: "vagrant"
+        groups: docker
+        append: true
+
+    - name: Download binary
+      unarchive:
+        remote_src: true
+        src: "https://releases.hashicorp.com/{{ hashi.key }}/{{ hashi.value.version }}/{{ hashi.key }}_{{ hashi.value.version }}_linux_amd64.zip"
+        dest: "/usr/bin"
+        mode: "0777"
+      loop: "{{ hashistack | dict2items }}"
+      loop_control:
+        loop_var: "hashi"
+        label: "{{ hashi.key }}"
+
+    - name: Create unitfile
+      copy:
+        content: "{{ hashi.value.unitfile }}"
+        dest: "/etc/systemd/system/{{ hashi.key }}.service"
+        owner: "root"
+        group: "root"
+        mode: "0755"
+      loop: "{{ hashistack | dict2items }}"
+      loop_control:
+        loop_var: "hashi"
+        label: "{{ hashi.key }}"
+      notify: restart hashi
+      register: _unit
+
+    - name: Create directories
+      file:
+        dest: "/opt/{{ hashi.key }}"
+        state: directory
+        owner: "root"
+        group: "root"
+        mode: "0755"
+      loop: "{{ hashistack | dict2items }}"
+      loop_control:
+        loop_var: "hashi"
+        label: "{{ hashi.key }}"
+
+    - name: Create configs
+      copy:
+        content: "{{ hashi.value.config | to_nice_json }}"
+        dest: "/opt/{{ hashi.key }}/config.json"
+        owner: "root"
+        group: "root"
+        mode: "0755"
+      loop: "{{ hashistack | dict2items }}"
+      loop_control:
+        loop_var: "hashi"
+        label: "{{ hashi.key }}"
+      when: hashi.value.config is defined
+      register: _config
+      notify: restart hashi
+
+    - name: Start and enable
+      systemd:
+        name: "{{ hashi.key }}"
+        state: started
+        enabled: true
+        daemon_reload: true
+      loop: "{{ hashistack | dict2items }}"
+      loop_control:
+        loop_var: "hashi"
+        label: "{{ hashi.key }}"
+
+    - name: Setup systemd-resolved
+      copy:
+        content: |
+          [Resolve]
+            DNS=127.0.0.1:8600 1.1.1.1
+            DNSSEC=false
+            Domains=~consul service.consul node.consul
+        dest: "/etc/systemd/resolved.conf"
+        owner: root
+        group: root
+        mode: 0644
+      notify: restart systemd-resolved
+
+  handlers:
+    - name: restart hashi
+      systemd:
+        name: "{{ item.hashi.key }}"
+        state: restarted
+        daemon_reload: true
+      when: item.changed
+      loop: "{{ _config.results + _unit.results }}"
+      loop_control:
+        label: "{{ item.hashi.key }}"
+
+    - name: restart systemd-resolved
+      systemd:
+        name: "systemd-resolved"
+        state: restarted
